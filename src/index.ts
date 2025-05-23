@@ -176,7 +176,7 @@ export async function apply(ctx: Context, config: Config) {
         guildId: session.guildId
       })
 
-      if (brickData.length === 0 || brickData[0].brick === 0) {
+      if (brickData.length === 0 || brickData[0].brick <= 0) {
         return "你在这个群还没有砖头，使用 砖头.烧砖 烧点砖头吧"
       } 
       
@@ -254,7 +254,7 @@ export async function apply(ctx: Context, config: Config) {
         guildId: session.guildId,
       })
 
-      if (brickData.length === 0 || brickData[0].brick === 0) {
+      if (brickData.length === 0 || brickData[0].brick <= 0) {
         return `你还没有砖头，使用 砖头.烧砖 烧点吧`
       } else {
         return `你有 ${brickData[0].brick}/${config.maxBrick} 块砖头`
