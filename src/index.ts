@@ -106,19 +106,19 @@ export async function apply(ctx: Context, config: Config) {
     checkingDay: 'string'
   }, {primary: 'id', autoInc: true})
 
-  let users: Users = {}
+  const users: Users = {}
   
   ctx.command("砖头")
 
   ctx.command("砖头.烧砖", "烧点砖头拍人")
     .alias("烧砖")
     .action(async ({ session }) => {
-      let user = `${session.guildId}:${session.userId}`
+      const user = `${session.guildId}:${session.userId}`
       if (!users[user]) {
-        users[user] = {}
+        users[user] = { burning: false, muted: false }
       }
 
-      let userData = await ctx.database.get('brick', {
+      const userData = await ctx.database.get('brick', {
         userId: session.userId, 
         guildId: session.guildId
       })
@@ -131,7 +131,7 @@ export async function apply(ctx: Context, config: Config) {
         })
       } else if (userData[0].brick >= config.maxBrick) {
         return `你最多只能拥有${config.maxBrick}块砖`
-      } else if (users?.[user]?.burning) {
+      } else if (users[user].burning) {
         return `已经在烧砖了`
       }
 
@@ -141,8 +141,8 @@ export async function apply(ctx: Context, config: Config) {
 
       let messageCount = 0
 
-      let dispose = ctx.guild(session.guildId).middleware(async (session_in, next) => {
-        if (![session.userId, session.selfId].includes(session_in.userId)) {
+      const dispose = ctx.guild(session.guildId).middleware(async (session_in, next) => {
+        if (![session.selfId].includes(session_in.userId)) {
           messageCount += 1
 
           if (messageCount >= config.cost) {
@@ -169,9 +169,19 @@ export async function apply(ctx: Context, config: Config) {
     .alias("拍人")
     .example("拍人 @koishi")
     .action(async ({session}, user) => {
-      let targetUserId = user.split(":")[1]
+      const targetUserId = user.split(":")[1]
+      const userKey = `${session.guildId}:${session.userId}`
+      const targetUserKey = `${session.guildId}:${targetUserId}`
 
-      let brickData = await ctx.database.get('brick', {
+      if (!users[userKey]) {
+        users[userKey] = { burning: false, muted: false }
+      }
+
+      if (!users[targetUserKey]) {
+        users[targetUserKey] = { burning: false, muted: false }
+      }
+
+      const brickData = await ctx.database.get('brick', {
         userId: session.userId, 
         guildId: session.guildId
       })
@@ -180,11 +190,13 @@ export async function apply(ctx: Context, config: Config) {
         return "你在这个群还没有砖头，使用 砖头.烧砖 烧点砖头吧"
       } 
       
-      let diff = Math.trunc(Date.now() / 1000 - brickData[0].lastSlap)
+      const diff = Math.trunc(Date.now() / 1000 - brickData[0].lastSlap)
 
       if (diff < config.cooldown) {
         return `${Math.abs(diff - config.cooldown)} 秒后才能再拍人哦`
-      } else if (users[`${session.guildId}:${targetUserId}`]?.muted) {
+      } 
+      
+      if (users[targetUserKey].muted) {
         return "他已经晕了..."
       }
 
@@ -195,43 +207,38 @@ export async function apply(ctx: Context, config: Config) {
         lastSlap: Date.now() / 1000
       }], ["userId", "guildId"])
 
-      let muteTime = Random.int(config.minMuteTime, config.maxMuteTime)
-      let muteTimeMs = muteTime * 1000
+      const muteTime = Random.int(config.minMuteTime, config.maxMuteTime)
+      const muteTimeMs = muteTime * 1000
 
-      let probability = config.specialUser[targetUserId] !== undefined 
+      const probability = config.specialUser[targetUserId] !== undefined 
         ? config.specialUser[targetUserId] / 100 
-        : config.reverse / 100;
+        : config.reverse / 100
 
       if (Random.bool(probability)) {
-        if (users[`${session.guildId}:${session.userId}`]) {
-          users[`${session.guildId}:${session.userId}`].muted = true
-        } else {
-          users[`${session.guildId}:${session.userId}`] = { muted: true }
-        }
-        await session.bot.muteGuildMember(session.guildId, session.userId, muteTimeMs)
-        silent(session.userId, muteTimeMs)
-        return `${h.at(targetUserId)} 夺过你的砖头，把你拍晕了 ${muteTime} 秒`
-      } else {
-        if (users[`${session.guildId}:${targetUserId}`]) {
-          users[`${session.guildId}:${targetUserId}`].muted = true
-        } else {
-          users[`${session.guildId}:${targetUserId}`] = { muted: true }
-        }
-        await session.bot.muteGuildMember(session.guildId, targetUserId, muteTimeMs)
-        silent(targetUserId, muteTimeMs)
+        slap(targetUserId)
         return `${h.at(targetUserId)} 你被 ${h.at(session.userId)} 拍晕了 ${muteTime} 秒`
+      } else {
+        slap(session.userId)
+        return `${h.at(targetUserId)} 夺过你的砖头，把你拍晕了 ${muteTime} 秒`
+
       }
 
-      function silent(userId: string, time: number) {
-        let dispose = ctx.guild(session.guildId).middleware((session, next) => {
-          if (session.userId !== userId) {
+      async function slap(slapedUserId: string) {
+        users[`${session.guildId}:${slapedUserId}`].muted = true
+        await session.bot.muteGuildMember(session.guildId, slapedUserId, muteTimeMs)
+        silent(slapedUserId, muteTimeMs)
+      }
+
+      function silent(slapedUserId: string, time: number) {
+        const dispose = ctx.guild(session.guildId).middleware((session, next) => {
+          if (session.userId !== slapedUserId) {
             return next()
           }
         }, true)
 
         ctx.setTimeout(() => {
           dispose()
-          users[`${session.guildId}:${userId}`].muted = false
+          users[`${session.guildId}:${slapedUserId}`].muted = false
         }, time)
       }
     })
@@ -239,8 +246,8 @@ export async function apply(ctx: Context, config: Config) {
   ctx.command("砖头.随机拍人", "随机拍晕（禁言）某个群友随机时间，有概率被反将一军")
     .alias("随机拍人")
     .action(async ({session}) => {
-      let guildMember = []
-      for await (let member of session.bot.getGuildMemberIter(session.guildId)) {
+      const guildMember = []
+      for await (const member of session.bot.getGuildMemberIter(session.guildId)) {
         guildMember.push(member?.user.id)
       }
       await session.execute(`砖头.拍人 ${h.at(Random.pick(guildMember))}`)
@@ -249,7 +256,7 @@ export async function apply(ctx: Context, config: Config) {
   ctx.command("砖头.查看", "看看自己在这个群有多少砖头")
     .alias("查看砖头")
     .action(async ({session}) => {
-      let brickData = await ctx.database.get('brick', {
+      const brickData = await ctx.database.get('brick', {
         userId: session.userId, 
         guildId: session.guildId,
       })
@@ -265,11 +272,11 @@ export async function apply(ctx: Context, config: Config) {
     ctx.command("砖头.签到")
       .alias("砖头签到")
       .action(async ({session}) => {
-        let date = new Date()
-        let today = `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`
+        const date = new Date()
+        const today = `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`
         let brick = Random.int(config.minGain, config.maxGain + 1)
 
-        let userData = await ctx.database.get('brick', {
+        const userData = await ctx.database.get('brick', {
           userId: session.userId, 
           guildId: session.guildId,
         })
@@ -282,25 +289,31 @@ export async function apply(ctx: Context, config: Config) {
             checkingDay: today
           })
 
-          return `签到成功，你获得了 ${brick} 块砖头，你现在有${brick}/${config.maxBrick}块砖头`
-        } else if (userData[0].brick >= config.maxBrick) {
-          return `你的砖头已经到上限了，用掉再签到吧`
-        } else if (userData[0].checkingDay !== today) {
-          if (userData[0].brick + brick > config.maxBrick) {
-            brick = config.maxBrick - userData[0].brick
-          }
-
-          await ctx.database.upsert('brick', (row) => [{
-                  userId: session.userId,
-                  guildId: session.guildId,
-                  brick: $.add(row.brick, brick),
-                  checkingDay: today
-                }], ["userId", "guildId"])
-
-          return `签到成功，获得了 ${brick} 块砖头，现在你有 ${userData[0].brick + brick}/${config.maxBrick} 块砖头`
-        } else {
+          return `签到成功，你获得了 ${brick} 块砖头，现在有${brick}/${config.maxBrick}块砖头`
+        }
+                
+        if (userData[0].checkingDay === today) {
           return "你今天已经签到过了"
         }
+
+        if (userData[0].brick >= config.maxBrick) {
+          return `你的砖头已经到上限了，用掉再签到吧`
+        }
+
+        if (userData[0].brick + brick > config.maxBrick) {
+          brick = config.maxBrick - userData[0].brick
+        } else if (userData[0].brick + brick < 0) {
+          brick = -userData[0].brick
+        }
+
+        await ctx.database.upsert('brick', (row) => [{
+                userId: session.userId,
+                guildId: session.guildId,
+                brick: $.add(row.brick, brick),
+                checkingDay: today
+              }], ["userId", "guildId"])
+
+        return `签到成功，你获得了 ${brick} 块砖头，现在有 ${userData[0].brick + brick}/${config.maxBrick} 块砖头`
       })
   }
 }
