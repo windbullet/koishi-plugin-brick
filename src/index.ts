@@ -101,7 +101,7 @@ export async function apply(ctx: Context, config: Config) {
     id: 'unsigned',
     userId: 'string',
     guildId: 'string',
-    brick: 'unsigned',
+    brick: 'integer',
     lastSlap: 'unsigned',
     checkingDay: 'string'
   }, {primary: 'id', autoInc: true})
