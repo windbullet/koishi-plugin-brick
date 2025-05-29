@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-brick",
   "description": "功夫再好，一砖撂倒。烧制砖头来拍群友吧，拍好了禁言他，没拍好被禁言！",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [
