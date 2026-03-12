@@ -2,10 +2,10 @@ import { Context, Schema, Random, h, $ } from 'koishi'
 
 export const name = 'brick'
 
-export const usage = `更新日志：https://forum.koishi.xyz/t/topic/9593  
-烧制砖块，然后拍晕群友！  
-如果机器人没有禁言的权限，将改为停止响应被拍晕的用户相同时间！  
-开始烧制之后，群内其他群友发送一定数量的消息就能完成烧制！  
+export const usage = `更新日志：https://forum.koishi.xyz/t/topic/9593
+烧制砖块，然后拍晕群友！
+如果机器人没有禁言的权限，将改为停止响应被拍晕的用户相同时间！
+开始烧制之后，群内其他群友发送一定数量的消息就能完成烧制！
 烧出来的砖头不能跨群用哦！  `
 
 export interface Brick {
@@ -24,7 +24,7 @@ declare module 'koishi' {
 }
 
 interface SpecialUser {
-  [userId: string]: number 
+  [userId: string]: number
 }
 
 export interface Config {
@@ -33,6 +33,7 @@ export interface Config {
   cooldown: number
   minMuteTime: number
   maxMuteTime: number
+  ignoreMuted: boolean
   reverse: number
   specialUser: SpecialUser
   checking: boolean
@@ -57,6 +58,9 @@ export const Config: Schema<Config> = Schema.intersect([
     maxMuteTime: Schema.number()
       .default(120)
       .description('最大禁言时间（秒）'),
+    ignoreMuted: Schema.boolean()
+      .default(false)
+      .description("是否不使用内置计时器判断用户是否被禁言（开启时，用户被拍晕后未被禁言也能正常使用bot以及再被拍晕）"),
     reverse: Schema.number()
       .default(10)
       .max(100)
@@ -64,7 +68,7 @@ export const Config: Schema<Config> = Schema.intersect([
     specialUser: Schema.dict(Number)
       .role('table')
       .description('键为用户ID，值为被拍时的反击概率（%）<br/>不设置则使用默认概率'),
-      
+
   }),
 
   Schema.object({
@@ -107,7 +111,7 @@ export async function apply(ctx: Context, config: Config) {
   }, {primary: 'id', autoInc: true})
 
   const users: Users = {}
-  
+
   ctx.command("砖头")
 
   ctx.command("砖头.烧砖", "烧点砖头拍人")
@@ -119,14 +123,14 @@ export async function apply(ctx: Context, config: Config) {
       }
 
       const userData = await ctx.database.get('brick', {
-        userId: session.userId, 
+        userId: session.userId,
         guildId: session.guildId
       })
 
       if (userData.length === 0) {
         await ctx.database.create('brick', {
-          userId: session.userId, 
-          guildId: session.guildId, 
+          userId: session.userId,
+          guildId: session.guildId,
           brick: 0
         })
       } else if (userData[0].brick >= config.maxBrick) {
@@ -149,9 +153,9 @@ export async function apply(ctx: Context, config: Config) {
             dispose()
 
             await ctx.database.upsert('brick', (row) => [{
-              userId: session.userId, 
-              guildId: session.guildId, 
-              brick: $.add(row.brick, 1), 
+              userId: session.userId,
+              guildId: session.guildId,
+              brick: $.add(row.brick, 1),
             }], ["userId", "guildId"])
 
             users[user].burning = false
@@ -182,27 +186,27 @@ export async function apply(ctx: Context, config: Config) {
       }
 
       const brickData = await ctx.database.get('brick', {
-        userId: session.userId, 
+        userId: session.userId,
         guildId: session.guildId
       })
 
       if (brickData.length === 0 || brickData[0].brick <= 0) {
         return "你在这个群还没有砖头，使用 砖头.烧砖 烧点砖头吧"
-      } 
-      
+      }
+
       const diff = Math.trunc(Date.now() / 1000 - brickData[0].lastSlap)
 
       if (diff < config.cooldown) {
         return `${Math.abs(diff - config.cooldown)} 秒后才能再拍人哦`
-      } 
-      
-      if (users[targetUserKey].muted) {
+      }
+
+      if (users[targetUserKey].muted && !config.ignoreMuted) {
         return "他已经晕了..."
       }
 
       await ctx.database.upsert('brick', (row) => [{
-        userId: session.userId, 
-        guildId: session.guildId, 
+        userId: session.userId,
+        guildId: session.guildId,
         brick: $.subtract(row.brick, 1),
         lastSlap: Date.now() / 1000
       }], ["userId", "guildId"])
@@ -210,8 +214,8 @@ export async function apply(ctx: Context, config: Config) {
       const muteTime = Random.int(config.minMuteTime, config.maxMuteTime)
       const muteTimeMs = muteTime * 1000
 
-      const probability = config.specialUser[targetUserId] !== undefined 
-        ? config.specialUser[targetUserId] / 100 
+      const probability = config.specialUser[targetUserId] !== undefined
+        ? config.specialUser[targetUserId] / 100
         : config.reverse / 100
 
       if (Random.bool(probability)) {
@@ -225,7 +229,9 @@ export async function apply(ctx: Context, config: Config) {
       async function slap(slapedUserId: string) {
         users[`${session.guildId}:${slapedUserId}`].muted = true
         await session.bot.muteGuildMember(session.guildId, slapedUserId, muteTimeMs)
-        silent(slapedUserId, muteTimeMs)
+        if (!config.ignoreMuted) {
+          silent(slapedUserId, muteTimeMs)
+        }
       }
 
       function silent(slapedUserId: string, time: number) {
@@ -256,7 +262,7 @@ export async function apply(ctx: Context, config: Config) {
     .alias("查看砖头")
     .action(async ({session}) => {
       const brickData = await ctx.database.get('brick', {
-        userId: session.userId, 
+        userId: session.userId,
         guildId: session.guildId,
       })
 
@@ -276,13 +282,13 @@ export async function apply(ctx: Context, config: Config) {
         let brick = Random.int(config.minGain, config.maxGain + 1)
 
         const userData = await ctx.database.get('brick', {
-          userId: session.userId, 
+          userId: session.userId,
           guildId: session.guildId,
         })
 
         if (userData.length === 0) {
           await ctx.database.create('brick', {
-            userId: session.userId, 
+            userId: session.userId,
             guildId: session.guildId,
             brick: brick,
             checkingDay: today
@@ -290,7 +296,7 @@ export async function apply(ctx: Context, config: Config) {
 
           return `签到成功，你获得了 ${brick} 块砖头，现在有${brick}/${config.maxBrick}块砖头`
         }
-                
+
         if (userData[0].checkingDay === today) {
           return "你今天已经签到过了"
         }
